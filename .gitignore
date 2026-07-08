@@ -1,0 +1,12 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+.wxt/
+
+# Local Claude Code settings (not part of the project)
+.claude/
+
+# OS files
+.DS_Store
