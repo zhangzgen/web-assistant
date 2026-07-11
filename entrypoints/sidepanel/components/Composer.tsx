@@ -9,6 +9,9 @@ interface Props {
   streaming: boolean;
   canSend: boolean;
   configured: boolean;
+  reactEnabled: boolean;
+  reactConfigured: boolean;
+  providerName: string;
   onOpenSettings: () => void;
 }
 
@@ -21,6 +24,9 @@ export const Composer = forwardRef<HTMLTextAreaElement, Props>(function Composer
     streaming,
     canSend,
     configured,
+    reactEnabled,
+    reactConfigured,
+    providerName,
     onOpenSettings,
   },
   ref,
@@ -42,6 +48,15 @@ export const Composer = forwardRef<HTMLTextAreaElement, Props>(function Composer
         >
           <Icon name="warning" size={14} />
           尚未配置模型，点击填写 API Key
+        </button>
+      )}
+      {configured && reactEnabled && !reactConfigured && (
+        <button
+          onClick={onOpenSettings}
+          className="mb-2 flex w-full items-center justify-center gap-1.5 rounded-xl border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs font-medium text-amber-600 transition-colors hover:bg-amber-500/20 dark:text-amber-300"
+        >
+          <Icon name="globe" size={14} />
+          ReAct 已开启，点击配置 {providerName} API Key
         </button>
       )}
       <div className="flex items-end gap-2 rounded-2xl border border-border bg-panel-2 px-3 py-2 shadow-sm transition-colors focus-within:border-accent focus-within:ring-2 focus-within:ring-accent/20">
@@ -81,9 +96,22 @@ export const Composer = forwardRef<HTMLTextAreaElement, Props>(function Composer
           </button>
         )}
       </div>
-      <p className="mt-1.5 px-1 text-center text-[11px] text-muted/70">
-        Enter 发送 · Shift + Enter 换行
-      </p>
+      <div className="mt-1.5 flex items-center justify-between gap-2 px-1 text-[11px] text-muted/70">
+        <span>Enter 发送 · Shift + Enter 换行</span>
+        {reactEnabled && (
+          <span
+            className={`flex items-center gap-1 rounded-full px-1.5 py-0.5 ${
+              reactConfigured
+                ? 'bg-accent-soft text-accent'
+                : 'bg-amber-500/10 text-amber-600 dark:text-amber-300'
+            }`}
+            title={`ReAct · ${providerName}`}
+          >
+            <Icon name="globe" size={11} />
+            ReAct · {providerName}
+          </span>
+        )}
+      </div>
     </div>
   );
 });

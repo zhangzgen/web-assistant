@@ -13,6 +13,23 @@ export interface StreamCallbacks {
   onContent?: (chunkDelta: string) => void;
 }
 
+/** 非流式补全，供 ReAct 控制器生成结构化的下一步动作。 */
+export async function completeChat(
+  settings: Settings,
+  messages: LlmMessage[],
+  callbacks: Pick<StreamCallbacks, 'onReasoning'> = {},
+  signal?: AbortSignal,
+): Promise<string> {
+  const result = await streamChat(
+    settings,
+    messages,
+    { onReasoning: callbacks.onReasoning },
+    signal,
+    { temperature: 0 },
+  );
+  return result.content;
+}
+
 function joinUrl(baseURL: string, path: string): string {
   return `${baseURL.replace(/\/+$/, '')}/${path.replace(/^\/+/, '')}`;
 }
@@ -27,6 +44,7 @@ export async function streamChat(
   messages: LlmMessage[],
   callbacks: StreamCallbacks,
   signal?: AbortSignal,
+  options?: { temperature?: number },
 ): Promise<{ reasoning: string; content: string }> {
   if (!settings.apiKey) {
     throw new Error('未配置 API Key，请先在设置中填写。');
@@ -41,7 +59,7 @@ export async function streamChat(
     body: JSON.stringify({
       model: settings.model,
       messages,
-      temperature: settings.temperature,
+      temperature: options?.temperature ?? settings.temperature,
       stream: true,
     }),
     signal,
