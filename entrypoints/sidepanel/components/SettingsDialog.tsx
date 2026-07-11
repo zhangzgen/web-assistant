@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react';
 import { saveSettings } from '@/lib/storage';
 import { DEFAULT_SETTINGS, type Settings } from '@/lib/types';
 import { THEMES, type ThemeMode } from '@/lib/theme';
+import { WEB_SEARCH_PROVIDERS } from '@/lib/web-search';
+import type { WebSearchProvider } from '@/lib/types';
 import { Icon } from './Icon';
 
 interface Props {
@@ -25,6 +27,14 @@ export function SettingsDialog({ open, settings, onClose }: Props) {
 
   const set = <K extends keyof Settings>(key: K, value: Settings[K]) =>
     setForm((f) => ({ ...f, [key]: value }));
+
+  const setSearchProvider = (provider: WebSearchProvider) =>
+    setForm((current) => ({
+      ...current,
+      webSearchProvider: provider,
+      // 一次只配置一个服务商，切换时避免误用上一家的 Key。
+      webSearchApiKey: '',
+    }));
 
   // 主题即时应用并持久化（不依赖底部「保存」）
   const setTheme = (theme: ThemeMode) => {
@@ -170,6 +180,86 @@ export function SettingsDialog({ open, settings, onClose }: Props) {
               />
             </Field>
           </section>
+
+          {/* ReAct 与 Web Search */}
+          <section className="space-y-3 rounded-2xl border border-border bg-panel-2/45 p-3">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted">
+                  <Icon name="globe" size={13} />
+                  ReAct · Web Search
+                </div>
+                <p className="mt-1 text-[11px] leading-relaxed text-muted">
+                  模型按需搜索网页、观察结果，再基于可追溯来源回答。
+                </p>
+              </div>
+              <Toggle
+                checked={form.reactEnabled}
+                onChange={(checked) => set('reactEnabled', checked)}
+                label="启用 ReAct"
+              />
+            </div>
+
+            <div
+              className={`space-y-3 border-t border-border pt-3 transition-opacity ${
+                form.reactEnabled ? 'opacity-100' : 'pointer-events-none opacity-45'
+              }`}
+            >
+              <Field label="Web Search 服务商" hint="一次只启用一个服务，后端自动适配请求和响应。">
+                <div className="relative">
+                  <select
+                    className={`${inputCls} appearance-none pr-9`}
+                    value={form.webSearchProvider}
+                    disabled={!form.reactEnabled}
+                    onChange={(e) =>
+                      setSearchProvider(e.target.value as WebSearchProvider)
+                    }
+                  >
+                    {Object.entries(WEB_SEARCH_PROVIDERS).map(([id, provider]) => (
+                      <option key={id} value={id}>
+                        {provider.name}
+                      </option>
+                    ))}
+                  </select>
+                  <Icon
+                    name="chevron-down"
+                    size={14}
+                    className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-muted"
+                  />
+                </div>
+              </Field>
+
+              <Field label={`${WEB_SEARCH_PROVIDERS[form.webSearchProvider].name} API Key`}>
+                <input
+                  type="password"
+                  className={inputCls}
+                  value={form.webSearchApiKey}
+                  disabled={!form.reactEnabled}
+                  placeholder={WEB_SEARCH_PROVIDERS[form.webSearchProvider].keyPlaceholder}
+                  onChange={(e) => set('webSearchApiKey', e.target.value)}
+                  autoComplete="off"
+                />
+              </Field>
+
+              <a
+                href={WEB_SEARCH_PROVIDERS[form.webSearchProvider].website}
+                target="_blank"
+                rel="noreferrer"
+                tabIndex={form.reactEnabled ? 0 : -1}
+                className="flex items-center justify-center gap-1.5 rounded-lg border border-border bg-panel px-3 py-2 text-xs font-medium text-accent transition-colors hover:border-accent/50 hover:bg-accent-soft"
+              >
+                前往 {WEB_SEARCH_PROVIDERS[form.webSearchProvider].name} 官网获取 API Key
+                <Icon name="external-link" size={13} />
+              </a>
+
+              {form.reactEnabled && !form.webSearchApiKey.trim() && (
+                <p className="flex items-start gap-1.5 text-[11px] leading-relaxed text-amber-600 dark:text-amber-300">
+                  <Icon name="warning" size={13} className="mt-0.5 shrink-0" />
+                  ReAct 已开启；保存前请填写当前服务商的 API Key。
+                </p>
+              )}
+            </div>
+          </section>
         </div>
 
         <div className="flex items-center justify-end gap-2 border-t border-border px-4 py-3">
@@ -224,5 +314,36 @@ function Field({
       {hint && <div className="mb-1.5 text-[11px] text-muted">{hint}</div>}
       {children}
     </label>
+  );
+}
+
+function Toggle({
+  checked,
+  onChange,
+  label,
+}: {
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+  label: string;
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      aria-label={label}
+      onClick={() => onChange(!checked)}
+      className={`relative mt-0.5 h-6 w-11 shrink-0 rounded-full border transition-colors ${
+        checked
+          ? 'border-accent bg-accent'
+          : 'border-border bg-panel'
+      }`}
+    >
+      <span
+        className={`absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow-sm transition-transform ${
+          checked ? 'translate-x-5' : 'translate-x-0'
+        }`}
+      />
+    </button>
   );
 }

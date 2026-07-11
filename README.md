@@ -10,6 +10,7 @@
 - 💾 **会话持久化** — 会话与网页地址关联，保存在本地 `chrome.storage.local`；支持查看/切换/删除单条历史与清空全部；**切换历史会话时自动打开其对应网页**（已有该页标签则聚焦，否则新开）。
 - ✂️ **划词添加到对话** — 只要扩展启用（无需先打开侧边栏），在网页上选中文本即浮出「💬 添加到对话」；点击后**自动打开侧边栏**并把片段加入输入框，**发送后自动清空已选片段**。
 - 🧠 **流式思考 + 回答** — 同时解析 `reasoning_content`（思考过程，可折叠）与 `content`（回答），均实时流式；回答自动 Markdown 渲染（GFM 表格、任务列表、代码高亮）。
+- 🌐 **可选 ReAct 网页搜索** — 模型在已读取当前网页和本轮问题的基础上，自主判断是否调用统一的 `web_search` 工具；支持 Tavily、Brave Search、Firecrawl，下拉切换后自动适配，并展示检索词、状态、耗时与可点击来源。
 - 🎨 **多主题自由切换** — 内置「跟随系统 / 浅色 / 深色 / Nord / 暖阳」五套主题，默认跟随系统深浅色；基于 CSS 变量（`data-theme`）实时切换并本地持久化。界面统一采用线性 SVG 图标（Lucide 风格）。
 
 ## 技术栈
@@ -46,7 +47,7 @@ npm run zip
 
 ## 使用
 
-1. 首次使用点击右上角 ⚙ 进入设置，填写 **Base URL / API Key / 模型名**（例如 `https://api.openai.com/v1` + `gpt-4o-mini`）。
+1. 首次使用点击右上角 ⚙ 进入设置，填写 **Base URL / API Key / 模型名**（例如 `https://api.openai.com/v1` + `gpt-4o-mini`）。如需联网能力，可开启 ReAct、选择 Web Search 服务商，并通过设置中的官网链接获取和填写对应 API Key。
 2. 打开任意网页，插件会自动以该网页正文为上下文。
 3. 直接提问；或在网页上划词，点浮层「添加到对话」，再补充问题后发送。
 4. 切换标签页 → 侧边栏自动切换到该网址对应的会话。
@@ -61,6 +62,8 @@ entrypoints/
   sidepanel/           # React 侧边栏 UI（Header / MessageList / Composer / 设置 / 历史）
 lib/
   llm.ts               # OpenAI 兼容 SSE 流式客户端（思考 + 回答）
+  react-agent.ts       # 受控 ReAct 循环（决策 → 搜索 → 观察 → 回答）
+  web-search.ts        # Tavily / Brave / Firecrawl 统一适配层
   storage.ts           # 设置与会话的持久化（按 URL key 分片）
   messaging.ts         # 跨上下文消息协议
   types.ts             # 共享类型与默认配置

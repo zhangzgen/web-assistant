@@ -21,7 +21,29 @@ export interface ChatMessage {
   snippets?: Snippet[];
   /** 出错信息（可选） */
   error?: string;
+  /** ReAct 过程中发生的工具调用，用于持久化与界面展示 */
+  toolCalls?: WebSearchToolCall[];
   createdAt: number;
+}
+
+export type WebSearchProvider = 'tavily' | 'brave' | 'firecrawl';
+
+export interface SearchSource {
+  title: string;
+  url: string;
+  content: string;
+  score?: number;
+}
+
+export interface WebSearchToolCall {
+  id: string;
+  name: 'web_search';
+  provider: WebSearchProvider;
+  query: string;
+  status: 'running' | 'completed' | 'error';
+  sources?: SearchSource[];
+  durationMs?: number;
+  error?: string;
 }
 
 /** 单个会话，与某个网页 URL 关联 */
@@ -54,6 +76,12 @@ export interface Settings {
   maxContextChars: number;
   /** 界面主题（默认跟随系统） */
   theme: ThemeMode;
+  /** 是否启用 Reason → Act → Observation 循环 */
+  reactEnabled: boolean;
+  /** 当前启用的唯一 Web Search 提供商 */
+  webSearchProvider: WebSearchProvider;
+  /** 当前 Web Search 提供商的 API Key */
+  webSearchApiKey: string;
 }
 
 /** 当前网页上下文 */
@@ -72,4 +100,7 @@ export const DEFAULT_SETTINGS: Settings = {
     '你是一个嵌入浏览器侧边栏的智能助手。你可以看到用户当前所在网页的内容，请结合网页上下文，用简洁、准确的中文回答用户的问题。当引用网页内容时保持忠实，不要编造。',
   maxContextChars: 12000,
   theme: 'system',
+  reactEnabled: false,
+  webSearchProvider: 'tavily',
+  webSearchApiKey: '',
 };

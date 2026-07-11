@@ -14,6 +14,11 @@ import {
 } from '@/lib/storage';
 import { streamChat, type LlmMessage } from '@/lib/llm';
 import {
+  formatSearchObservations,
+  runReAct,
+} from '@/lib/react-agent';
+import { WEB_SEARCH_PROVIDERS } from '@/lib/web-search';
+import {
   DEFAULT_SETTINGS,
   type ChatMessage,
   type Conversation,
@@ -242,6 +247,52 @@ export function App() {
     let reasoningMs: number | undefined;
 
     try {
+      const observations = await runReAct(
+        settings,
+        {
+          pageTitle: page?.title || tab.title,
+          pageUrl: page?.url || tab.url,
+          pageContent: pageContext,
+          history: llmMessages.slice(1, -1),
+          userQuestion: userContent,
+        },
+        {
+          onToolStart: (call) => {
+            const current = convRef.current?.messages.find(
+              (m) => m.id === assistantMsg.id,
+            );
+            updateAssistant({
+              toolCalls: [...(current?.toolCalls ?? []), call],
+            });
+          },
+          onToolFinish: (call) => {
+            const current = convRef.current?.messages.find(
+              (m) => m.id === assistantMsg.id,
+            );
+            // 搜索正文仅用于本轮推理；历史记录保留链接和短摘要，避免快速
+            // 撑满 chrome.storage.local 配额。
+            const displayCall = {
+              ...call,
+              sources: call.sources?.map((source) => ({
+                ...source,
+                content: source.content.slice(0, 280),
+              })),
+            };
+            updateAssistant({
+              toolCalls: (current?.toolCalls ?? []).map((item) =>
+                item.id === call.id ? displayCall : item,
+              ),
+            });
+          },
+        },
+        controller.signal,
+      );
+
+      const searchContext = formatSearchObservations(observations);
+      if (searchContext) {
+        llmMessages[0].content += `\n\n# Web Search 工具观察\n${searchContext}\n\n请综合当前网页和搜索观察回答。凡是来自搜索的事实，都应使用对应来源 URL 生成可点击的 Markdown 链接；不要编造来源，也不要声称已读取观察中没有提供的内容。`;
+      }
+
       await streamChat(
         settings,
         llmMessages,
@@ -310,6 +361,9 @@ export function App() {
           streaming={streaming}
           canSend={Boolean(input.trim() || snippets.length)}
           configured={Boolean(settings.apiKey)}
+          reactEnabled={settings.reactEnabled}
+          reactConfigured={Boolean(settings.webSearchApiKey)}
+          providerName={WEB_SEARCH_PROVIDERS[settings.webSearchProvider].name}
           onOpenSettings={() => setSettingsOpen(true)}
         />
       </div>

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import type { ChatMessage } from '@/lib/types';
+import type { ChatMessage, WebSearchToolCall } from '@/lib/types';
+import { WEB_SEARCH_PROVIDERS } from '@/lib/web-search';
 import { Markdown } from './Markdown';
 import { Icon } from './Icon';
 
@@ -83,6 +84,10 @@ function MessageItem({
 
   return (
     <div className="group flex flex-col gap-1.5 wa-anim-fade">
+      {message.toolCalls?.length ? (
+        <ToolCalls calls={message.toolCalls} />
+      ) : null}
+
       {message.reasoning ? (
         <Reasoning
           text={message.reasoning}
@@ -111,6 +116,139 @@ function MessageItem({
       ) : null}
     </div>
   );
+}
+
+function ToolCalls({ calls }: { calls: WebSearchToolCall[] }) {
+  return (
+    <div className="mb-1 flex flex-col gap-2">
+      {calls.map((call) => (
+        <ToolCallCard key={call.id} call={call} />
+      ))}
+    </div>
+  );
+}
+
+function ToolCallCard({ call }: { call: WebSearchToolCall }) {
+  const live = call.status === 'running';
+  const [open, setOpen] = useState(live);
+  const previousStatus = useRef(call.status);
+
+  useEffect(() => {
+    if (previousStatus.current === 'running' && call.status === 'completed') {
+      setOpen(false);
+    }
+    if (call.status === 'error') setOpen(true);
+    previousStatus.current = call.status;
+  }, [call.status]);
+
+  const provider = WEB_SEARCH_PROVIDERS[call.provider].name;
+  const duration =
+    call.durationMs != null
+      ? `${Math.max(0.1, call.durationMs / 1000).toFixed(1)} 秒`
+      : '';
+  const label = live
+    ? `正在调用 ${provider}`
+    : call.status === 'error'
+      ? `${provider} 搜索失败`
+      : `${provider} · ${call.sources?.length ?? 0} 个来源${
+          duration ? ` · ${duration}` : ''
+        }`;
+
+  return (
+    <div
+      className={`overflow-hidden rounded-xl border bg-panel shadow-sm ${
+        call.status === 'error'
+          ? 'border-red-500/35'
+          : live
+            ? 'border-accent/40'
+            : 'border-border'
+      }`}
+    >
+      <button
+        type="button"
+        onClick={() => setOpen((value) => !value)}
+        className="flex w-full items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-panel-2"
+      >
+        <span
+          className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg ${
+            call.status === 'error'
+              ? 'bg-red-500/10 text-red-500'
+              : 'bg-accent-soft text-accent'
+          }`}
+        >
+          {live ? (
+            <span className="h-3 w-3 animate-spin rounded-full border-2 border-accent/30 border-t-accent" />
+          ) : (
+            <Icon name={call.status === 'error' ? 'warning' : 'search'} size={15} />
+          )}
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block text-xs font-medium text-text">{label}</span>
+          <span className="block truncate text-[11px] text-muted">
+            {call.query}
+          </span>
+        </span>
+        <Icon
+          name="chevron-down"
+          size={14}
+          className={`shrink-0 text-muted transition-transform ${
+            open ? '' : '-rotate-90'
+          }`}
+        />
+      </button>
+
+      {open && (
+        <div className="border-t border-border px-3 py-2.5">
+          <div className="mb-2 flex items-start gap-1.5 text-[11px] text-muted">
+            <Icon name="quote" size={12} className="mt-0.5 shrink-0" />
+            <span className="break-words">搜索词：{call.query}</span>
+          </div>
+
+          {live ? (
+            <p className="text-[11px] text-muted">正在检索并整理可引用来源…</p>
+          ) : call.status === 'error' ? (
+            <p className="text-[11px] leading-relaxed text-red-600 dark:text-red-300">
+              {call.error || '搜索服务返回未知错误。'}
+            </p>
+          ) : call.sources?.length ? (
+            <ol className="space-y-2">
+              {call.sources.map((source, index) => (
+                <li key={`${source.url}-${index}`} className="flex gap-2">
+                  <span className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded bg-panel-2 text-[10px] text-muted">
+                    {index + 1}
+                  </span>
+                  <span className="min-w-0">
+                    <a
+                      href={source.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="flex items-center gap-1 text-xs font-medium text-accent hover:underline"
+                    >
+                      <span className="truncate">{source.title}</span>
+                      <Icon name="external-link" size={11} className="shrink-0" />
+                    </a>
+                    <span className="block truncate text-[10px] text-muted/80">
+                      {sourceHost(source.url)}
+                    </span>
+                  </span>
+                </li>
+              ))}
+            </ol>
+          ) : (
+            <p className="text-[11px] text-muted">没有找到可用来源。</p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function sourceHost(url: string): string {
+  try {
+    return new URL(url).hostname.replace(/^www\./, '');
+  } catch {
+    return url;
+  }
 }
 
 function Reasoning({
