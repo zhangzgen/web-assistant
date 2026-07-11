@@ -22,6 +22,7 @@ import {
   DEFAULT_SETTINGS,
   type ChatMessage,
   type Conversation,
+  type ReasoningStage,
   type Settings,
   type Snippet,
 } from '@/lib/types';
@@ -62,6 +63,7 @@ export function App() {
   const [streaming, setStreaming] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [hasPageContext, setHasPageContext] = useState(false);
 
   const convRef = useRef<Conversation | null>(null);
   convRef.current = conversation;
@@ -138,6 +140,25 @@ export function App() {
   // 应用主题：切换主题或（system 下）系统偏好变化时自动更新 <html data-theme>
   useEffect(() => watchTheme(settings.theme), [settings.theme]);
 
+  // 标签页变化后主动探测正文状态，供 Header 的上下文状态圆点展示。
+  useEffect(() => {
+    let active = true;
+    setHasPageContext(false);
+    if (!tab) return () => {
+      active = false;
+    };
+
+    void sendToTab<PageContentResponse>(tab.tabId, {
+      type: 'GET_PAGE_CONTENT',
+    }).then((page) => {
+      if (active) setHasPageContext(Boolean(page?.content?.trim()));
+    });
+
+    return () => {
+      active = false;
+    };
+  }, [tab?.tabId, tab?.url]);
+
   const persist = useCallback(async (conv: Conversation) => {
     conv.updatedAt = Date.now();
     setConversation({ ...conv });
@@ -205,6 +226,7 @@ export function App() {
     if (page?.content) {
       pageContext = page.content.slice(0, settings.maxContextChars);
     }
+    setHasPageContext(Boolean(pageContext.trim()));
 
     // 组装发送给 LLM 的消息
     const llmMessages: LlmMessage[] = [];
@@ -242,9 +264,21 @@ export function App() {
       setConversation({ ...cur });
     };
 
+    const upsertReasoningStage = (stage: ReasoningStage) => {
+      const current = convRef.current?.messages.find(
+        (m) => m.id === assistantMsg.id,
+      );
+      const stages = [...(current?.reasoningStages ?? [])];
+      const index = stages.findIndex((item) => item.id === stage.id);
+      if (index === -1) stages.push(stage);
+      else stages[index] = stage;
+      updateAssistant({ reasoningStages: stages });
+    };
+
     // 记录思考耗时：首个 reasoning 增量→首个回答增量
     let reasoningStart: number | null = null;
     let reasoningMs: number | undefined;
+    const answerReasoningStageId = `answer-${assistantMsg.id}`;
 
     try {
       const observations = await runReAct(
@@ -257,6 +291,7 @@ export function App() {
           userQuestion: userContent,
         },
         {
+          onReasoningStage: upsertReasoningStage,
           onToolStart: (call) => {
             const current = convRef.current?.messages.find(
               (m) => m.id === assistantMsg.id,
@@ -299,15 +334,39 @@ export function App() {
         {
           onReasoning: (d) => {
             if (reasoningStart === null) reasoningStart = Date.now();
+            const current = convRef.current?.messages.find(
+              (m) => m.id === assistantMsg.id,
+            );
+            const existingStage = current?.reasoningStages?.find(
+              (stage) => stage.id === answerReasoningStageId,
+            );
+            upsertReasoningStage({
+              id: answerReasoningStageId,
+              phase: 'answer',
+              title: '组织最终回答',
+              content: (existingStage?.content ?? '') + d,
+              status: 'running',
+            });
             updateAssistant({
-              reasoning:
-                (convRef.current?.messages.find((m) => m.id === assistantMsg.id)
-                  ?.reasoning ?? '') + d,
+              reasoning: (current?.reasoning ?? '') + d,
             });
           },
           onContent: (d) => {
             if (reasoningStart !== null && reasoningMs === undefined) {
               reasoningMs = Date.now() - reasoningStart;
+              const current = convRef.current?.messages.find(
+                (m) => m.id === assistantMsg.id,
+              );
+              const stage = current?.reasoningStages?.find(
+                (item) => item.id === answerReasoningStageId,
+              );
+              if (stage) {
+                upsertReasoningStage({
+                  ...stage,
+                  status: 'completed',
+                  durationMs: reasoningMs,
+                });
+              }
             }
             updateAssistant({
               content:
@@ -324,6 +383,22 @@ export function App() {
         updateAssistant({ error: err?.message || String(err) });
       }
     } finally {
+      if (reasoningStart !== null && reasoningMs === undefined) {
+        reasoningMs = Date.now() - reasoningStart;
+        const current = convRef.current?.messages.find(
+          (m) => m.id === assistantMsg.id,
+        );
+        const stage = current?.reasoningStages?.find(
+          (item) => item.id === answerReasoningStageId,
+        );
+        if (stage) {
+          upsertReasoningStage({
+            ...stage,
+            status: 'completed',
+            durationMs: reasoningMs,
+          });
+        }
+      }
       abortRef.current = null;
       setStreaming(false);
       const final = convRef.current;
@@ -336,6 +411,7 @@ export function App() {
       <Header
         title={tab?.title || '未打开网页'}
         url={tab?.url || ''}
+        hasPageContext={hasPageContext}
         onNewChat={newChat}
         onOpenSettings={() => setSettingsOpen(true)}
         onOpenHistory={() => setHistoryOpen(true)}

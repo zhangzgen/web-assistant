@@ -3,6 +3,7 @@ import { Icon, type IconName } from './Icon';
 interface HeaderProps {
   title: string;
   url: string;
+  hasPageContext: boolean;
   onNewChat: () => void;
   onOpenSettings: () => void;
   onOpenHistory: () => void;
@@ -11,6 +12,7 @@ interface HeaderProps {
 export function Header({
   title,
   url,
+  hasPageContext,
   onNewChat,
   onOpenSettings,
   onOpenHistory,
@@ -36,10 +38,13 @@ export function Header({
           <p className="mt-0.5 flex items-center gap-1 text-xs text-muted" title={url}>
             <Icon name="globe" size={12} className="shrink-0" />
             <span className="truncate">{host}</span>
-            <span className="shrink-0 opacity-60">· 已作为上下文</span>
+            <ContextDot available={hasPageContext} />
           </p>
         ) : (
-          <p className="mt-0.5 text-xs text-muted">网页 AI 助手</p>
+          <p className="mt-0.5 flex items-center gap-1.5 text-xs text-muted">
+            网页 AI 助手
+            <ContextDot available={hasPageContext} />
+          </p>
         )}
       </div>
 
@@ -49,6 +54,18 @@ export function Header({
         <IconButton title="模型设置" onClick={onOpenSettings} icon="settings" />
       </div>
     </header>
+  );
+}
+
+function ContextDot({ available }: { available: boolean }) {
+  return (
+    <span
+      title={available ? '已获取网页上下文' : '未获取到网页上下文'}
+      aria-label={available ? '已获取网页上下文' : '未获取到网页上下文'}
+      className={`ml-0.5 h-2 w-2 shrink-0 rounded-full ${
+        available ? 'bg-emerald-500' : 'bg-red-500'
+      }`}
+    />
   );
 }
 

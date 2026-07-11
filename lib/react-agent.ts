@@ -1,5 +1,6 @@
 import { completeChat, type LlmMessage } from './llm';
 import type {
+  ReasoningStage,
   SearchSource,
   Settings,
   WebSearchToolCall,
@@ -17,6 +18,7 @@ export interface ReActContext {
 }
 
 export interface ReActCallbacks {
+  onReasoningStage?: (stage: ReasoningStage) => void;
   onToolStart?: (call: WebSearchToolCall) => void;
   onToolFinish?: (call: WebSearchToolCall) => void;
 }
@@ -29,6 +31,7 @@ export interface SearchObservation {
 interface ReActDecision {
   action: 'web_search' | 'final';
   query?: string;
+  summary?: string;
 }
 
 /**
@@ -45,13 +48,56 @@ export async function runReAct(
 
   const observations: SearchObservation[] = [];
   for (let step = 0; step < MAX_SEARCH_STEPS; step += 1) {
-    const decision = await decideNextAction(
-      settings,
-      context,
-      observations,
-      step,
-      signal,
-    );
+    const stage: ReasoningStage = {
+      id: crypto.randomUUID(),
+      phase: step === 0 ? 'plan' : 'observe',
+      title: step === 0 ? '分析问题与网页上下文' : '评估搜索结果',
+      content:
+        step === 0
+          ? '正在结合当前网页、对话和本轮问题判断是否需要外部搜索…'
+          : '正在检查已有搜索结果是否足以支持回答…',
+      status: 'running',
+    };
+    callbacks.onReasoningStage?.(stage);
+    const stageStartedAt = Date.now();
+    let streamedReasoning = '';
+    let decision: ReActDecision;
+    try {
+      decision = await decideNextAction(
+        settings,
+        context,
+        observations,
+        step,
+        (delta) => {
+          streamedReasoning += delta;
+          callbacks.onReasoningStage?.({
+            ...stage,
+            content: streamedReasoning,
+            status: 'running',
+          });
+        },
+        signal,
+      );
+    } catch (error: any) {
+      if (error?.name === 'AbortError') {
+        callbacks.onReasoningStage?.({
+          ...stage,
+          content: '思考过程已停止。',
+          status: 'completed',
+          durationMs: Date.now() - stageStartedAt,
+        });
+      }
+      throw error;
+    }
+    callbacks.onReasoningStage?.({
+      ...stage,
+      content:
+        streamedReasoning.trim() ||
+        decision.summary ||
+        defaultDecisionSummary(decision, observations.length),
+      status: 'completed',
+      durationMs: Date.now() - stageStartedAt,
+    });
     if (decision.action === 'final' || !decision.query?.trim()) break;
 
     const call: WebSearchToolCall = {
@@ -107,6 +153,7 @@ async function decideNextAction(
   context: ReActContext,
   observations: SearchObservation[],
   step: number,
+  onReasoningDelta: (delta: string) => void,
   signal?: AbortSignal,
 ): Promise<ReActDecision> {
   const observationText = observations.length
@@ -137,10 +184,12 @@ async function decideNextAction(
 不需要搜索的典型情况：总结、翻译、解释当前网页已经给出的内容。
 如果已有观察足以回答，或继续搜索价值不大，选择 final。不要重复已经执行过的搜索词。
 
-只输出一个 JSON 对象，不要 Markdown，不要解释：
-{"action":"web_search","query":"具体且可独立理解的搜索词"}
+summary 是面向用户的简短决策摘要，只说明判断依据和下一步，不要输出隐含推理链，限制在 80 个汉字以内。
+
+只输出一个 JSON 对象，不要 Markdown，不要额外解释：
+{"action":"web_search","query":"具体且可独立理解的搜索词","summary":"当前网页缺少某项外部信息，需要搜索补充"}
 或
-{"action":"final"}`,
+{"action":"final","summary":"现有网页与搜索资料已经足以回答"}`,
     },
     {
       role: 'user',
@@ -164,7 +213,14 @@ ${observationText}`,
   ];
 
   try {
-    return parseDecision(await completeChat(settings, messages, signal));
+    return parseDecision(
+      await completeChat(
+        settings,
+        messages,
+        { onReasoning: onReasoningDelta },
+        signal,
+      ),
+    );
   } catch (error: any) {
     if (error?.name === 'AbortError') throw error;
     // 部分兼容网关可能返回带说明的非标准结构；首步用保守规则降级，
@@ -180,9 +236,22 @@ function parseDecision(text: string): ReActDecision {
   const candidate = fenced || text.match(/\{[\s\S]*\}/)?.[0] || text;
   const parsed = JSON.parse(candidate.trim());
   if (parsed?.action === 'web_search' && typeof parsed?.query === 'string') {
-    return { action: 'web_search', query: parsed.query };
+    return {
+      action: 'web_search',
+      query: parsed.query,
+      summary:
+        typeof parsed?.summary === 'string'
+          ? parsed.summary.slice(0, 240)
+          : undefined,
+    };
   }
-  return { action: 'final' };
+  return {
+    action: 'final',
+    summary:
+      typeof parsed?.summary === 'string'
+        ? parsed.summary.slice(0, 240)
+        : undefined,
+  };
 }
 
 function fallbackDecision(question: string, pageTitle: string): ReActDecision {
@@ -191,8 +260,27 @@ function fallbackDecision(question: string, pageTitle: string): ReActDecision {
       question,
     );
   return requiresFreshInfo
-    ? { action: 'web_search', query: `${pageTitle} ${question}`.trim() }
-    : { action: 'final' };
+    ? {
+        action: 'web_search',
+        query: `${pageTitle} ${question}`.trim(),
+        summary: '问题涉及网页外的最新信息或链接，需要调用网页搜索补充资料。',
+      }
+    : {
+        action: 'final',
+        summary: '当前网页上下文已经足以回答，本轮无需调用网页搜索。',
+      };
+}
+
+function defaultDecisionSummary(
+  decision: ReActDecision,
+  observationCount: number,
+): string {
+  if (decision.action === 'web_search') {
+    return `当前资料仍不足，需要搜索“${decision.query}”补充外部信息。`;
+  }
+  return observationCount
+    ? '已有网页上下文和搜索结果足以支持回答，准备整理结论。'
+    : '当前网页上下文已经足以回答，本轮无需调用网页搜索。';
 }
 
 /** 将观察压缩为可追溯的最终回答上下文。 */

@@ -23,7 +23,18 @@ export interface ChatMessage {
   error?: string;
   /** ReAct 过程中发生的工具调用，用于持久化与界面展示 */
   toolCalls?: WebSearchToolCall[];
+  /** ReAct 决策、观察评估与最终回答的统一思考时间线 */
+  reasoningStages?: ReasoningStage[];
   createdAt: number;
+}
+
+export interface ReasoningStage {
+  id: string;
+  phase: 'plan' | 'observe' | 'answer';
+  title: string;
+  content: string;
+  status: 'running' | 'completed';
+  durationMs?: number;
 }
 
 export type WebSearchProvider = 'tavily' | 'brave' | 'firecrawl';

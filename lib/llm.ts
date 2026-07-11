@@ -17,40 +17,17 @@ export interface StreamCallbacks {
 export async function completeChat(
   settings: Settings,
   messages: LlmMessage[],
+  callbacks: Pick<StreamCallbacks, 'onReasoning'> = {},
   signal?: AbortSignal,
 ): Promise<string> {
-  if (!settings.apiKey) {
-    throw new Error('未配置 API Key，请先在设置中填写。');
-  }
-
-  const res = await fetch(joinUrl(settings.baseURL, 'chat/completions'), {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${settings.apiKey}`,
-    },
-    body: JSON.stringify({
-      model: settings.model,
-      messages,
-      temperature: 0,
-      stream: false,
-    }),
+  const result = await streamChat(
+    settings,
+    messages,
+    { onReasoning: callbacks.onReasoning },
     signal,
-  });
-  if (!res.ok) {
-    const detail = await res.text().catch(() => '');
-    throw new Error(
-      `ReAct 决策请求失败 (${res.status} ${res.statusText})${
-        detail ? `：${detail.slice(0, 300)}` : ''
-      }`,
-    );
-  }
-  const json = await res.json();
-  const content = json?.choices?.[0]?.message?.content;
-  if (typeof content !== 'string') {
-    throw new Error('模型未返回可解析的 ReAct 决策。');
-  }
-  return content;
+    { temperature: 0 },
+  );
+  return result.content;
 }
 
 function joinUrl(baseURL: string, path: string): string {
@@ -67,6 +44,7 @@ export async function streamChat(
   messages: LlmMessage[],
   callbacks: StreamCallbacks,
   signal?: AbortSignal,
+  options?: { temperature?: number },
 ): Promise<{ reasoning: string; content: string }> {
   if (!settings.apiKey) {
     throw new Error('未配置 API Key，请先在设置中填写。');
@@ -81,7 +59,7 @@ export async function streamChat(
     body: JSON.stringify({
       model: settings.model,
       messages,
-      temperature: settings.temperature,
+      temperature: options?.temperature ?? settings.temperature,
       stream: true,
     }),
     signal,
